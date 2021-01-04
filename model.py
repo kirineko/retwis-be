@@ -13,7 +13,7 @@ class Timeline:
         start = (page - 1) * num
         end = page * num - 1
         posts_id = to_list(r.lrange('timeline', start, end))
-        return [Post(pid) for pid in posts_id]
+        return [Post(pid).__dict__ for pid in posts_id]
 
 
 class User:
@@ -53,23 +53,23 @@ class User:
     @staticmethod
     def users():
         users = to_dict(r.hgetall('users'))
-        return [User(uid) for username, uid in users.items()]
+        return [{'id': uid, 'username': username} for username, uid in users.items()]
 
     def posts(self) -> List[Post]:
         posts_id = to_list(r.lrange('user:{}:posts'.format(self.id), 0, 9))
-        return [Post(pid) for pid in posts_id]
+        return [Post(pid).__dict__ for pid in posts_id]
 
     def timeline(self) -> List[Post]:
         posts_id = to_list(r.lrange('user:{}:timeline'.format(self.id), 0, 9))
-        return [Post(pid) for pid in posts_id]
+        return [Post(pid).__dict__ for pid in posts_id]
         
     def followers(self) -> List[User]:
         followers = to_list(r.smembers('user:{}:followers'.format(self.id)))
-        return [User(uid) for uid in followers]
+        return [User(uid).__dict__ for uid in followers]
 
     def following(self) -> List[User]:
         following = to_list(r.smembers('user:{}:following'.format(self.id)))
-        return [User(uid) for uid in following]
+        return [User(uid).__dict__ for uid in following]
 
     def followers_num(self) -> int:
         return r.scard('user:{}:followers'.format(self.id))
@@ -99,7 +99,7 @@ class User:
 
     def mentions(self):
         posts_id = to_list(r.lrange('user:{}:mentions'.format(self.id), 0, 9))
-        return [Post(pid) for pid in posts_id]
+        return [Post(pid).__dict__ for pid in posts_id]
 
     def add_timeline(self, pid: int):
         r.lpush('user:{}:timeline'.format(self.id), pid)
@@ -111,6 +111,7 @@ class Post:
         self.userid = pdata['userid']
         self.content = pdata['content']
         self.posttime = pdata['posttime']
+        self.username = to_string(r.hget('user:{}'.format(self.userid), 'username'))
 
     @staticmethod
     def find_by_id(id: int) -> Optional[Post]:
@@ -143,7 +144,3 @@ class Post:
             u.add_mention(int(pid))  
 
         return Post(int(pid))
-
-    @property
-    def username(self):
-        return to_string(r.hget('user:{}'.format(self.userid), 'username'))

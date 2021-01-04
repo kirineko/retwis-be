@@ -1,6 +1,5 @@
 import bottle
 import settings
-import session
 import time
 import json
 from convert import to_dict, to_list, to_set, to_string
@@ -12,6 +11,11 @@ key = Fernet.generate_key()
 cipher_suite = Fernet(key)
 r = settings.r
 login_user = None
+
+
+@bottle.hook('after_request')
+def enable_cors():
+    bottle.response.headers['Access-Control-Allow-Origin'] = '*'
 
 
 def auth(func):
@@ -27,7 +31,6 @@ def auth(func):
             user = json.loads(user_data.decode('utf-8'))
             global login_user
             login_user = User(user['uid'])
-            print(login_user)
             return func(*args, **kwargs)
         except Exception as err:
             return res_fail(-1, "{}".format(err))
@@ -52,21 +55,17 @@ def index():
 @bottle.get('/timeline')
 @auth
 def timeline():
-    user = islogin()
-    if user:
-        res = {
-            'username': user.username,
-            'posts': Timeline.posts(),
-            'users': User.users()
-        }
-        return res
+    res = {
+        'username': login_user.username,
+        'posts': Timeline.posts(),
+        'users': User.users()
+    }
+    return res
 
-    bottle.redirect('/')
 
 @bottle.get('/<username>')
-@bottle.view('profile')
+@auth
 def profile(username):
-    login_user = islogin()
     user = User.find_by_username(username)
     if user and login_user:
         res = {
@@ -80,31 +79,32 @@ def profile(username):
             'isfollowing': login_user.isfollowing(user)
         }
         return res
-    
-    bottle.redirect('/')
+
+    return res_fail(-1, 'user not exist')
 
 @bottle.get('/<loginname>/follow/<username>')
+@auth
 def follow(loginname, username):
     login_user = User.find_by_username(loginname)
     user = User.find_by_username(username)
     if login_user and user:
         login_user.add_following(user)
-        bottle.redirect('/{}'.format(user.username))
-    bottle.redirect('/')
+        return res_succ('')
+    return res_fail(-1, 'user cannot find')
 
 @bottle.get('/<loginname>/unfollow/<username>')
+@auth
 def unfollow(loginname, username):
     login_user = User.find_by_username(loginname)
     user = User.find_by_username(username)
     if login_user and user:
         login_user.remove_following(user)
-        bottle.redirect('/{}'.format(user.username))
-    bottle.redirect('/')
+        return res_succ('')
+    return res_fail(-1, 'user cannot find')
 
 @bottle.get('/mentions/<username>')
-@bottle.view('mentions')
+@auth
 def mentions(username):
-    login_user = islogin()
     user = User.find_by_username(username)
     if login_user and user:
         res = {
@@ -115,7 +115,7 @@ def mentions(username):
         }
         return res
     
-    bottle.redirect('/')
+    return res_fail(-1, 'user not exist')
 
 
 @bottle.post('/signup')
@@ -166,25 +166,23 @@ def login():
     
 
 @bottle.get('/logout')
+@auth
 def logout():
-    sess = session.Session(bottle.request, bottle.response)
-    sess.invalided()
-    bottle.redirect('/')
+    auth_token = bottle.request.query.auth
+    r.srem('token', auth_token)
+    return res_succ('')
 
 
 @bottle.post('/post')
+@auth
 def post():
-    user = islogin()
+    user = login_user
     if user:
         content = bottle.request.POST['content']
-        Post.create(user, content)
-        bottle.redirect('/')
+        post = Post.create(user, content)
+        return post.__dict__
     else:
-        bottle.redirect('/signup')
-
-@bottle.get('/public/<filename:path>')
-def send_static(filename):
-    return bottle.static_file(filename, root='public/')
+        return res_fail(-1, 'user need auth')
 
 bottle.run(reloader=True, port=8082)
 
